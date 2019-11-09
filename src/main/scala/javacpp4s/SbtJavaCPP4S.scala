@@ -5,6 +5,7 @@ import sbt._
 import scala.sys.process.ProcessLogger
 import scala.sys.process._
 import DynamicLibraryMeta.createDynamicLibraryMetaTask
+import sbt.librarymanagement.ivy.{IvyDependencyResolution, InlineIvyConfiguration}
 
 /**
   * Generate JNI dynamic link libraries.
@@ -48,6 +49,8 @@ object SbtJavaCPP4S extends AutoPlugin {
 
   override def trigger: PluginTrigger = noTrigger
 
+  private[this] val javacpp = "org.bytedeco" % "javacpp" % "1.5.1"
+
   override val projectSettings: Seq[Setting[_]] = {
     import autoImport._
 
@@ -68,7 +71,7 @@ object SbtJavaCPP4S extends AutoPlugin {
         s"-Djava.library.path=${libraryDestinationPath.value.toString}",
         s"-Dplatform.linkpath=${libraryDestinationPath.value.toString}"
       ),
-      libraryDependencies += "org.bytedeco" % "javacpp" % "1.5.1",
+      libraryDependencies += javacpp,
       sourceGenerators in Compile += createDynamicLibraryMetaTask.taskValue,
       run := (run in Runtime).dependsOn(generateJNILibrary in Compile).evaluated,
       test := (test in Test).dependsOn(generateJNILibrary in Compile).value
@@ -98,10 +101,13 @@ object SbtJavaCPP4S extends AutoPlugin {
         sys.error("Fail to make the library!")
       }
 
-      // It's a poor method.... I want to fix this if it's possible.
-      val javaCPPClassPath = (dependencyClasspath in Compile).value.files.filter { f =>
-        f.getPath.contains("javacpp")
-      }
+      val javaCPPClassPath =
+        IvyDependencyResolution(InlineIvyConfiguration().withLog(log)).retrieve(
+          dependencyId = javacpp,
+          scalaModuleInfo = None,
+          retrieveDirectory = target.value,
+          log = log
+        ).left.map(e => throw e.resolveException).merge
 
       // Make a JNI library.
       (runner in Compile).value.run(
